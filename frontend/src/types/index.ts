@@ -201,3 +201,137 @@ export interface AppNotification {
   is_read: boolean;
   created_at: string;
 }
+
+// --- Collaborative Project Execution Platform Types ---
+
+export type TaskStatus =
+  | 'BACKLOG'
+  | 'TODO'
+  | 'IN_PROGRESS'
+  | 'SUBMITTED'
+  | 'UNDER_REVIEW'
+  | 'CHANGES_REQUESTED'
+  | 'APPROVED'
+  | 'COMPLETED';
+
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+export interface Milestone {
+  id: string;
+  project_id: string;
+  title: string;
+  description?: string | null;
+  target_date?: string | null;
+  status: 'OPEN' | 'COMPLETED';
+  created_at: string;
+  updated_at: string;
+  task_count: number;
+  completed_task_count: number;
+}
+
+export interface TaskReviewItem {
+  id: string;
+  task_id: string;
+  reviewer_id: string;
+  reviewer_name?: string | null;
+  reviewer_avatar?: string | null;
+  status: 'APPROVED' | 'CHANGES_REQUESTED';
+  comment: string;
+  commit_sha?: string | null;
+  created_at: string;
+}
+
+export interface TaskBlockedByItem {
+  task_id: string;
+  depends_on_task_id: string;
+  depends_on_title?: string;
+  depends_on_status?: string;
+  is_blocking: boolean;
+}
+
+export interface ProjectTaskItem {
+  id: string;
+  project_id: string;
+  milestone_id?: string | null;
+  milestone_title?: string | null;
+  creator_id: string;
+  creator_name?: string | null;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
+  assignee_avatar?: string | null;
+  title: string;
+  description?: string | null;
+  priority: TaskPriority;
+  deadline?: string | null;
+  status: TaskStatus;
+  is_blocked: boolean;
+  blocked_by: TaskBlockedByItem[];
+  github_repo?: string | null;
+  branch?: string | null;
+  pull_request_url?: string | null;
+  pull_request_number?: number | null;
+  latest_commit_sha?: string | null;
+  latest_commit_message?: string | null;
+  changed_files?: string[] | null;
+  verification_status: 'PENDING' | 'PASSED' | 'FAILED' | 'SKIPPED';
+  verification_details?: Record<string, any> | null;
+  submission_notes?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  reviews: TaskReviewItem[];
+  comment_count: number;
+}
+
+export interface ProjectActivityLogItem {
+  id: string;
+  project_id: string;
+  task_id?: string | null;
+  task_title?: string | null;
+  user_id?: string | null;
+  user_name?: string | null;
+  action: string;
+  details?: string | null;
+  created_at: string;
+}
+
+export interface MemberActivityStatItem {
+  user_id: string;
+  full_name: string;
+  avatar_url?: string | null;
+  assigned_count: number;
+  completed_count: number;
+  in_progress_count: number;
+  submitted_count: number;
+  awaiting_review_count: number;
+}
+
+export interface ProjectDashboardData {
+  project_id: string;
+  project_name: string;
+  github_repo_full_name: string;
+  completion_percentage: number;
+  total_tasks: number;
+  active_tasks: number;
+  completed_tasks: number;
+  blocked_tasks: number;
+  overdue_tasks: number;
+  tasks_awaiting_review: number;
+  project_health: 'ON_TRACK' | 'AT_RISK' | 'DELAYED';
+  milestones: Milestone[];
+  member_activities: MemberActivityStatItem[];
+  recent_activity: ProjectActivityLogItem[];
+  recent_tasks: ProjectTaskItem[];
+}
+
+export interface MemberDashboardData {
+  user_id: string;
+  assigned_tasks: ProjectTaskItem[];
+  submitted_tasks: ProjectTaskItem[];
+  tasks_awaiting_my_review: ProjectTaskItem[];
+  tasks_requiring_changes: ProjectTaskItem[];
+  completed_tasks: ProjectTaskItem[];
+  overdue_count: number;
+}

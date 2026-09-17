@@ -1,8 +1,10 @@
-﻿# GitSync Duo 🔗🔥
+# GitSync Duo 🔗🔥
 
-> **A two-person daily accountability platform where a day is only COMPLETE when BOTH partners satisfy their GitHub activity requirement.**
+> **A collaborative project execution and accountability platform designed around: PLAN → ASSIGN → WORK → SUBMIT → VERIFY → REVIEW → COMPLETE.**
+>
+> *"Don't just track whether someone says they worked. Track the work, make it visible, allow teammates to verify it, and show the team what remains to be done."*
 
-No manual checkboxes. No self-reporting. The backend is the single source of truth — verified automatically through GitHub activity.
+No manual checkboxes. No self-reporting. Objective GitHub activity verification + mandatory peer review before any task is completed.
 
 ---
 

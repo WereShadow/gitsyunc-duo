@@ -16,6 +16,10 @@ from app.models.entities import (
     ProjectVerification,
     Streak,
     Notification,
+    ProjectMilestone,
+    ProjectTask,
+    TaskDependency,
+    TaskActivityLog,
 )
 from app.core.security import get_password_hash, encrypt_token
 from app.services.completion_engine import CompletionEngine
@@ -290,5 +294,136 @@ async def seed_demo_data():
             timestamp=now - timedelta(minutes=45)
         )
 
+        # --- Seed Project Milestones and Tasks ---
+        m1 = ProjectMilestone(
+            project_id=shared_proj.id,
+            title="Milestone 1: MVP Core Architecture",
+            description="Base database models, asynchronous API endpoints, and authentication workflow.",
+            target_date=(now + timedelta(days=7)).strftime("%Y-%m-%d"),
+            status="OPEN"
+        )
+        m2 = ProjectMilestone(
+            project_id=shared_proj.id,
+            title="Milestone 2: Collaborative Review & GitHub Integration",
+            description="Branch verification, pull request audit log, and peer review execution.",
+            target_date=(now + timedelta(days=14)).strftime("%Y-%m-%d"),
+            status="OPEN"
+        )
+        db.add_all([m1, m2])
+        await db.flush()
+
+        # Task 1: Database Setup (Completed by Alex)
+        pt1 = ProjectTask(
+            project_id=shared_proj.id,
+            milestone_id=m1.id,
+            creator_id=user_a.id,
+            assignee_id=user_a.id,
+            title="Database Schema & Async Engine",
+            description="Configure SQLAlchemy async engine, aiosqlite, and base entity models.",
+            priority="HIGH",
+            deadline=now - timedelta(days=1),
+            status="COMPLETED",
+            github_repo=shared_repo_full,
+            branch="main",
+            latest_commit_sha="c576f63",
+            latest_commit_message="feat: database setup & models",
+            verification_status="PASSED",
+            completed_at=now - timedelta(days=1)
+        )
+        # Task 2: Auth API & Security (Submitted by Alex, awaiting Morgan's review)
+        pt2 = ProjectTask(
+            project_id=shared_proj.id,
+            milestone_id=m1.id,
+            creator_id=user_a.id,
+            assignee_id=user_a.id,
+            title="FastAPI Authentication & JWT Tokens",
+            description="Implement JWT tokens, password hashing, and OAuth dependency injection.",
+            priority="URGENT",
+            deadline=now + timedelta(days=1),
+            status="UNDER_REVIEW",
+            github_repo=shared_repo_full,
+            branch="backend",
+            latest_commit_sha="a91b4e2",
+            latest_commit_message="feat(auth): implement JWT token generation & Fernet encryption",
+            verification_status="PASSED",
+            submitted_at=now - timedelta(minutes=40)
+        )
+        # Task 3: Frontend Login & Review UI (Assigned to Morgan, in progress)
+        pt3 = ProjectTask(
+            project_id=shared_proj.id,
+            milestone_id=m1.id,
+            creator_id=user_a.id,
+            assignee_id=user_b.id,
+            title="Frontend Authentication & Review Modals",
+            description="Build login page, token storage in auth context, and peer review submit modal.",
+            priority="HIGH",
+            deadline=now + timedelta(days=2),
+            status="IN_PROGRESS",
+            github_repo=shared_repo_full,
+            branch="frontend",
+            verification_status="PENDING"
+        )
+        # Task 4: Collaborative Dashboard (Assigned to Morgan, BLOCKED by Auth API)
+        pt4 = ProjectTask(
+            project_id=shared_proj.id,
+            milestone_id=m2.id,
+            creator_id=user_a.id,
+            assignee_id=user_b.id,
+            title="Project Execution Dashboard",
+            description="Render overall completion metrics, task pipeline, blocked dependency indicators, and team activity.",
+            priority="HIGH",
+            deadline=now + timedelta(days=5),
+            status="TODO",
+            github_repo=shared_repo_full,
+            branch="frontend/dashboard",
+            verification_status="PENDING"
+        )
+        # Task 5: Automated GitHub Actions & CI Pipeline (Backlog)
+        pt5 = ProjectTask(
+            project_id=shared_proj.id,
+            milestone_id=m2.id,
+            creator_id=user_b.id,
+            assignee_id=None,
+            title="Continuous Integration & Test Workflow",
+            description="Setup GitHub Actions workflow to run pytest and frontend type-checking on PRs.",
+            priority="MEDIUM",
+            deadline=now + timedelta(days=7),
+            status="BACKLOG",
+            github_repo=shared_repo_full,
+            branch="infra/ci",
+            verification_status="PENDING"
+        )
+        db.add_all([pt1, pt2, pt3, pt4, pt5])
+        await db.flush()
+
+        # Dependencies:
+        # Task 2 depends on Task 1 (Satisfied, since Task 1 is COMPLETED)
+        # Task 3 depends on Task 2 (Task 2 is UNDER_REVIEW, so Task 3 has upstream dependency)
+        # Task 4 depends on Task 2 and Task 3
+        d1 = TaskDependency(task_id=pt2.id, depends_on_task_id=pt1.id)
+        d2 = TaskDependency(task_id=pt3.id, depends_on_task_id=pt2.id)
+        d3 = TaskDependency(task_id=pt4.id, depends_on_task_id=pt2.id)
+        d4 = TaskDependency(task_id=pt4.id, depends_on_task_id=pt3.id)
+        db.add_all([d1, d2, d3, d4])
+
+        # Activity Logs
+        act1 = TaskActivityLog(
+            project_id=shared_proj.id,
+            task_id=pt1.id,
+            user_id=user_a.id,
+            action="TASK_COMPLETED",
+            details="Approved and completed: Database Schema & Async Engine",
+            created_at=now - timedelta(days=1)
+        )
+        act2 = TaskActivityLog(
+            project_id=shared_proj.id,
+            task_id=pt2.id,
+            user_id=user_a.id,
+            action="TASK_SUBMITTED",
+            details="Submitted for peer review with commit a91b4e2",
+            created_at=now - timedelta(minutes=40)
+        )
+        db.add_all([act1, act2])
+
         await db.commit()
-        logger.info("Demo data seeded successfully with Duo, Users, and Streak!")
+        logger.info("Demo data seeded successfully with Duo, Project Milestones, Tasks, and Dependencies!")

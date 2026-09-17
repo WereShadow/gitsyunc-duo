@@ -18,8 +18,16 @@ import {
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { TodayProgress, DailyTask, UserTaskProgress } from '../types';
+import {
+  TodayProgress,
+  DailyTask,
+  UserTaskProgress,
+  ProjectDashboardData,
+  ProjectTaskItem,
+  TaskPriority
+} from '../types';
 import { PeerReviewModal } from '../components/reviews/PeerReviewModal';
+import { FolderKanban, Lock } from 'lucide-react';
 
 interface DashboardPageProps {
   onNavigate: (tab: string) => void;
@@ -35,14 +43,48 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [selectedPartnerProgress, setSelectedPartnerProgress] = useState<UserTaskProgress | null>(null);
 
+  // Project Execution State
+  const [activeTabMode, setActiveTabMode] = useState<'PROJECT_PIPELINE' | 'DAILY_HABIT'>('PROJECT_PIPELINE');
+  const [projectData, setProjectData] = useState<ProjectDashboardData | null>(null);
+  const [selectedTask, setSelectedTask] = useState<ProjectTaskItem | null>(null);
+
+  // Peer review dialog state
+  const [isTaskReviewOpen, setIsTaskReviewOpen] = useState(false);
+  const [taskReviewStatus, setTaskReviewStatus] = useState<'APPROVED' | 'CHANGES_REQUESTED'>('APPROVED');
+  const [taskReviewComment, setTaskReviewComment] = useState('');
+  const [taskReviewSubmitting, setTaskReviewSubmitting] = useState(false);
+
+  // Submit task evidence dialog state
+  const [isTaskSubmitOpen, setIsTaskSubmitOpen] = useState(false);
+  const [submitBranch, setSubmitBranch] = useState('');
+  const [submitSha, setSubmitSha] = useState('');
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [submitNotes, setSubmitNotes] = useState('');
+  const [taskSubmittingWork, setTaskSubmittingWork] = useState(false);
+
+  // Create Task dialog state
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newPriority, setNewPriority] = useState<TaskPriority>('MEDIUM');
+  const [newAssigneeId, setNewAssigneeId] = useState('');
+  const [newMilestoneId, setNewMilestoneId] = useState('');
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+
   const fetchDashboardData = async () => {
     try {
-      const [progData, taskData] = await Promise.all([
-        api.getTodayProgress(),
-        api.getTodayTask(),
+      const [progData, taskData, projects] = await Promise.all([
+        api.getTodayProgress().catch(() => null),
+        api.getTodayTask().catch(() => null),
+        api.getProjects().catch(() => []),
       ]);
       setProgress(progData);
       setTask(taskData);
+
+      if (projects && projects.length > 0) {
+        const pDash = await api.getProjectDashboard(projects[0].id).catch(() => null);
+        setProjectData(pDash);
+      }
 
       // Trigger celebration if day complete
       if (progData?.status === 'COMPLETED') {
@@ -95,6 +137,75 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     setIsReviewModalOpen(true);
   };
 
+  // Collaborative Project Action Handlers
+  const handleProjectTaskReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTask || !taskReviewComment.trim()) return;
+
+    try {
+      setTaskReviewSubmitting(true);
+      await api.reviewProjectTask(selectedTask.id, {
+        status: taskReviewStatus,
+        comment: taskReviewComment.trim(),
+        commit_sha: selectedTask.latest_commit_sha || undefined
+      });
+      setIsTaskReviewOpen(false);
+      setTaskReviewComment('');
+      setSelectedTask(null);
+      await fetchDashboardData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit review');
+    } finally {
+      setTaskReviewSubmitting(false);
+    }
+  };
+
+  const handleProjectTaskEvidenceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTask) return;
+
+    try {
+      setTaskSubmittingWork(true);
+      await api.submitTaskEvidence(selectedTask.id, {
+        branch: submitBranch.trim() || selectedTask.branch || 'main',
+        commit_sha: submitSha.trim() || 'f2b84c1',
+        commit_message: submitMessage.trim() || 'feat: completed task requirements',
+        submission_notes: submitNotes.trim()
+      });
+      setIsTaskSubmitOpen(false);
+      setSelectedTask(null);
+      await fetchDashboardData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit task evidence');
+    } finally {
+      setTaskSubmittingWork(false);
+    }
+  };
+
+  const handleProjectTaskCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projectData || !newTitle.trim()) return;
+
+    try {
+      setIsCreatingTask(true);
+      await api.createProjectTask(projectData.project_id, {
+        title: newTitle.trim(),
+        description: newDesc.trim() || undefined,
+        priority: newPriority,
+        assignee_id: newAssigneeId || undefined,
+        milestone_id: newMilestoneId || undefined
+      });
+      setIsCreateTaskOpen(false);
+      setNewTitle('');
+      setNewDesc('');
+      await fetchDashboardData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to create task');
+    } finally {
+      setIsCreatingTask(false);
+    }
+  };
+
   const isCompleted = progress?.status === 'COMPLETED';
   const isShared = duo?.project_mode === 'SHARED';
 
@@ -103,6 +214,278 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-7xl mx-auto animate-in fade-in duration-200">
+      {/* View Mode Toggle: Collaborative Project Execution vs Daily Habit */}
+      <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveTabMode('PROJECT_PIPELINE')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTabMode === 'PROJECT_PIPELINE'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <FolderKanban className="w-4 h-4" />
+            <span>Project Execution & Pipeline</span>
+          </button>
+          <button
+            onClick={() => setActiveTabMode('DAILY_HABIT')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTabMode === 'DAILY_HABIT'
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
+                : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <Flame className="w-4 h-4" />
+            <span>Daily Duo Streak Habit</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {activeTabMode === 'PROJECT_PIPELINE' && (
+            <button
+              onClick={() => setIsCreateTaskOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 rounded-lg transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Task</span>
+            </button>
+          )}
+          <button
+            onClick={fetchDashboardData}
+            className="p-2 text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 rounded-lg transition-colors"
+            title="Refresh Data"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {activeTabMode === 'PROJECT_PIPELINE' && projectData ? (
+        <div className="space-y-6">
+          {/* Project Platform Banner */}
+          <div className="p-6 bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-950 rounded-2xl border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase">
+                  Project Execution
+                </span>
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border uppercase ${
+                  projectData.project_health === 'ON_TRACK'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                }`}>
+                  {projectData.project_health.replace('_', ' ')}
+                </span>
+              </div>
+              <h2 className="text-2xl font-black text-white flex items-center gap-2">
+                {projectData.project_name}
+                <span className="text-xs font-normal text-zinc-400">({projectData.github_repo_full_name})</span>
+              </h2>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                PLAN → ASSIGN → WORK → SUBMIT → VERIFY → REVIEW → COMPLETE
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-xl text-center min-w-[100px]">
+                <span className="text-[10px] uppercase text-zinc-500 font-bold block">Completion</span>
+                <span className="text-lg font-black text-emerald-400">{projectData.completion_percentage}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Project KPI Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl">
+              <span className="text-[10px] font-bold text-zinc-400 block uppercase">Total Tasks</span>
+              <span className="text-xl font-black text-white">{projectData.total_tasks}</span>
+              <span className="text-[11px] text-zinc-500 block mt-1">{projectData.completed_tasks} completed</span>
+            </div>
+            <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl">
+              <span className="text-[10px] font-bold text-zinc-400 block uppercase">Under Review</span>
+              <span className="text-xl font-black text-purple-400">{projectData.tasks_awaiting_review}</span>
+              <span className="text-[11px] text-purple-400/80 block mt-1">Awaiting teammate</span>
+            </div>
+            <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl">
+              <span className="text-[10px] font-bold text-zinc-400 block uppercase">Blocked Tasks</span>
+              <span className="text-xl font-black text-amber-400">{projectData.blocked_tasks}</span>
+              <span className="text-[11px] text-amber-400/80 block mt-1">Unmet dependencies</span>
+            </div>
+            <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl">
+              <span className="text-[10px] font-bold text-zinc-400 block uppercase">Overdue</span>
+              <span className="text-xl font-black text-rose-400">{projectData.overdue_tasks}</span>
+              <span className="text-[11px] text-rose-400/80 block mt-1">Past deadline</span>
+            </div>
+          </div>
+
+          {/* Member Work & Responsibility Breakdown */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {projectData.member_activities.map((mem) => {
+              const isMe = mem.user_id === user?.id;
+              return (
+                <div key={mem.user_id} className="p-4 bg-zinc-900/90 border border-zinc-800 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      {mem.avatar_url ? (
+                        <img src={mem.avatar_url} alt={mem.full_name} className="w-8 h-8 rounded-full border border-zinc-700" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-blue-600/30 text-blue-400 flex items-center justify-center text-xs font-bold">
+                          {mem.full_name[0]}
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-xs font-bold text-white block">
+                          {mem.full_name} {isMe && <span className="text-[10px] text-zinc-400 font-normal">(You)</span>}
+                        </span>
+                        <span className="text-[10px] text-zinc-400">{mem.assigned_count} assigned tasks</span>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      {mem.completed_count} done
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs pt-2 border-t border-zinc-800/80">
+                    <div className="bg-zinc-950 p-1.5 rounded-lg">
+                      <span className="text-[10px] text-zinc-500 block">IN PROGRESS</span>
+                      <span className="font-bold text-blue-400">{mem.in_progress_count}</span>
+                    </div>
+                    <div className="bg-zinc-950 p-1.5 rounded-lg">
+                      <span className="text-[10px] text-zinc-500 block">SUBMITTED</span>
+                      <span className="font-bold text-purple-400">{mem.submitted_count}</span>
+                    </div>
+                    <div className="bg-zinc-950 p-1.5 rounded-lg">
+                      <span className="text-[10px] text-zinc-500 block">AWAITING REVIEW</span>
+                      <span className="font-bold text-amber-400">{mem.awaiting_review_count}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Collaborative Project Tasks Pipeline */}
+          <div className="space-y-3">
+            <h3 className="text-base font-bold text-white flex items-center justify-between">
+              <span>Task Pipeline & Evidence Inspector</span>
+              <span className="text-xs font-normal text-zinc-400">{projectData.recent_tasks.length} tasks</span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {projectData.recent_tasks.map((pt) => {
+                const isAssignedToMe = pt.assignee_id === user?.id;
+                const canReview = !isAssignedToMe && (pt.status === 'UNDER_REVIEW' || pt.status === 'SUBMITTED');
+                const canSubmit = isAssignedToMe && (pt.status === 'IN_PROGRESS' || pt.status === 'TODO' || pt.status === 'CHANGES_REQUESTED') && !pt.is_blocked;
+
+                return (
+                  <div
+                    key={pt.id}
+                    className={`p-4 bg-zinc-900 border rounded-xl flex flex-col justify-between transition-all ${
+                      pt.is_blocked
+                        ? 'border-amber-500/40 bg-amber-950/10'
+                        : pt.status === 'COMPLETED'
+                        ? 'border-emerald-500/30'
+                        : 'border-zinc-800 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          pt.status === 'COMPLETED'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : pt.status === 'UNDER_REVIEW'
+                            ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                            : pt.status === 'CHANGES_REQUESTED'
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            : pt.status === 'IN_PROGRESS'
+                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                        }`}>
+                          {pt.status.replace('_', ' ')}
+                        </span>
+
+                        <span className="text-[10px] font-mono text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          {pt.priority}
+                        </span>
+                      </div>
+
+                      <h4 className="text-sm font-bold text-white mb-1">{pt.title}</h4>
+                      {pt.description && (
+                        <p className="text-xs text-zinc-400 line-clamp-2 mb-2.5">{pt.description}</p>
+                      )}
+
+                      {/* Blocked Badge */}
+                      {pt.is_blocked && (
+                        <div className="p-2 mb-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-300 flex items-start gap-1.5">
+                          <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold block text-[11px]">Blocked by:</span>
+                            <span className="text-[11px]">{pt.blocked_by.filter(b => b.is_blocking).map(b => b.depends_on_title).join(', ')}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Evidence Details */}
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2.5 text-[11px] text-zinc-400">
+                        {pt.branch && (
+                          <span className="bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800 flex items-center gap-1 font-mono">
+                            <GitCommit className="w-3 h-3 text-blue-400" />
+                            {pt.branch}
+                          </span>
+                        )}
+                        {pt.latest_commit_sha && (
+                          <span className="bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800 font-mono text-emerald-400">
+                            {pt.latest_commit_sha}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom row: Assignee & Action Buttons */}
+                    <div className="pt-2.5 border-t border-zinc-800/80 flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">{pt.assignee_name || 'Unassigned'}</span>
+
+                      <div className="flex items-center gap-1.5">
+                        {canSubmit && (
+                          <button
+                            onClick={() => {
+                              setSelectedTask(pt);
+                              setSubmitBranch(pt.branch || '');
+                              setIsTaskSubmitOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                          >
+                            Submit
+                          </button>
+                        )}
+
+                        {canReview && (
+                          <button
+                            onClick={() => {
+                              setSelectedTask(pt);
+                              setTaskReviewStatus('APPROVED');
+                              setTaskReviewComment('');
+                              setIsTaskReviewOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+                          >
+                            Review
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* When in DAILY_HABIT mode (or if no project data yet), show the classic daily duo accountability layout */}
+      {activeTabMode === 'DAILY_HABIT' && (
+        <div className="space-y-6">
       {/* Top Banner: Duo Completion Status */}
       {isCompleted ? (
         <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-r from-emerald-950/80 via-zinc-900 to-teal-950/80 border border-emerald-500/40 shadow-2xl">
@@ -374,6 +757,262 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         onClose={() => setIsReviewModalOpen(false)}
         onSuccess={fetchDashboardData}
       />
+        </div>
+      )}
+
+      {/* Project Execution Peer Review Modal */}
+      {isTaskReviewOpen && selectedTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-purple-400" />
+                <span>Peer Review: {selectedTask.title}</span>
+              </h3>
+              <button onClick={() => setIsTaskReviewOpen(false)} className="text-zinc-400 hover:text-white text-sm">✕</button>
+            </div>
+
+            <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl space-y-1 text-xs">
+              <div className="text-zinc-400">Assignee: <span className="text-white font-bold">{selectedTask.assignee_name}</span></div>
+              {selectedTask.branch && <div className="text-zinc-400">Branch: <span className="text-blue-400 font-mono">{selectedTask.branch}</span></div>}
+              {selectedTask.latest_commit_sha && <div className="text-zinc-400">Commit SHA: <span className="text-emerald-400 font-mono">{selectedTask.latest_commit_sha}</span></div>}
+            </div>
+
+            <form onSubmit={handleProjectTaskReviewSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-2">Review Decision</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTaskReviewStatus('APPROVED')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      taskReviewStatus === 'APPROVED'
+                        ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/50'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                    }`}
+                  >
+                    ✓ APPROVE TASK
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTaskReviewStatus('CHANGES_REQUESTED')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      taskReviewStatus === 'CHANGES_REQUESTED'
+                        ? 'bg-rose-600/20 text-rose-400 border-rose-500/50'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                    }`}
+                  >
+                    ⚠ REQUEST CHANGES
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Feedback Comments *</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={taskReviewComment}
+                  onChange={(e) => setTaskReviewComment(e.target.value)}
+                  placeholder="Provide feedback on the submitted code and test coverage..."
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTaskReviewOpen(false)}
+                  className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={taskReviewSubmitting}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg"
+                >
+                  {taskReviewSubmitting ? 'Submitting...' : 'Submit Review'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Project Task Evidence Submission Modal */}
+      {isTaskSubmitOpen && selectedTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <GitCommit className="w-5 h-5 text-blue-400" />
+                <span>Submit Task: {selectedTask.title}</span>
+              </h3>
+              <button onClick={() => setIsTaskSubmitOpen(false)} className="text-zinc-400 hover:text-white text-sm">✕</button>
+            </div>
+
+            <form onSubmit={handleProjectTaskEvidenceSubmit} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Branch Name</label>
+                <input
+                  type="text"
+                  value={submitBranch}
+                  onChange={(e) => setSubmitBranch(e.target.value)}
+                  placeholder="e.g. feature/auth-api"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Commit SHA</label>
+                <input
+                  type="text"
+                  value={submitSha}
+                  onChange={(e) => setSubmitSha(e.target.value)}
+                  placeholder="e.g. 7-digit sha or full commit hash"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Commit Message</label>
+                <input
+                  type="text"
+                  value={submitMessage}
+                  onChange={(e) => setSubmitMessage(e.target.value)}
+                  placeholder="e.g. feat: complete database schema & migrations"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Notes for Teammate Review</label>
+                <textarea
+                  rows={2}
+                  value={submitNotes}
+                  onChange={(e) => setSubmitNotes(e.target.value)}
+                  placeholder="Summary of changes and testing instructions..."
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTaskSubmitOpen(false)}
+                  className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={taskSubmittingWork}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg"
+                >
+                  {taskSubmittingWork ? 'Submitting...' : 'Submit Evidence'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Project Task Modal */}
+      {isCreateTaskOpen && projectData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Plus className="w-5 h-5 text-blue-400" />
+                <span>Create New Project Task</span>
+              </h3>
+              <button onClick={() => setIsCreateTaskOpen(false)} className="text-zinc-400 hover:text-white text-sm">✕</button>
+            </div>
+
+            <form onSubmit={handleProjectTaskCreate} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Task Title *</label>
+                <input
+                  required
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="e.g. Implement GitHub Webhook validation"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  placeholder="Acceptance criteria and deliverables..."
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 mb-1">Assignee</label>
+                  <select
+                    value={newAssigneeId}
+                    onChange={(e) => setNewAssigneeId(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                  >
+                    <option value="">Unassigned (Backlog)</option>
+                    {duo?.members.map((m) => (
+                      <option key={m.user_id} value={m.user_id}>{m.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 mb-1">Priority</label>
+                  <select
+                    value={newPriority}
+                    onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
+                    className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                  >
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                    <option value="URGENT">Urgent</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1">Milestone</label>
+                <select
+                  value={newMilestoneId}
+                  onChange={(e) => setNewMilestoneId(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                >
+                  <option value="">None</option>
+                  {projectData.milestones.map((m) => (
+                    <option key={m.id} value={m.id}>{m.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateTaskOpen(false)}
+                  className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingTask}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg"
+                >
+                  {isCreatingTask ? 'Creating...' : 'Create Task'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

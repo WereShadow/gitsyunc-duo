@@ -9,6 +9,7 @@ from app.api.routes.progress import router as progress_router
 from app.api.routes.streaks import router as streaks_router
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.webhooks import router as webhooks_router
+from app.api.routes.project_collaboration import router as project_collab_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
@@ -21,3 +22,4 @@ api_router.include_router(progress_router)
 api_router.include_router(streaks_router)
 api_router.include_router(notifications_router)
 api_router.include_router(webhooks_router)
+api_router.include_router(project_collab_router)

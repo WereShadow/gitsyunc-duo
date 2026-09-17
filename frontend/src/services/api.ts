@@ -8,7 +8,11 @@ import {
   GitHubActivity,
   StreakData,
   AppNotification,
-  TaskReview
+  TaskReview,
+  Milestone,
+  ProjectTaskItem,
+  ProjectDashboardData,
+  MemberDashboardData,
 } from '../types';
 
 const API_BASE = '/api';
@@ -124,6 +128,12 @@ class ApiClient {
 
   async getDuoProjects(duoId: string): Promise<Project[]> {
     return this.request<Project[]>(`/projects/duo/${duoId}`);
+  }
+
+  async getProjects(): Promise<Project[]> {
+    const duo = await this.getCurrentDuo().catch(() => null);
+    if (!duo) return [];
+    return this.getDuoProjects(duo.id);
   }
 
   // Tasks
@@ -248,6 +258,145 @@ class ApiClient {
   async markAllNotificationsRead() {
     return this.request<{ success: boolean }>('/notifications/read-all', {
       method: 'POST',
+    });
+  }
+
+  // --- Project Collaboration & Accountability ---
+  async getProjectDashboard(projectId: string): Promise<ProjectDashboardData> {
+    return this.request<ProjectDashboardData>(`/projects/${projectId}/dashboard`);
+  }
+
+  async getMemberDashboard(): Promise<MemberDashboardData> {
+    return this.request<MemberDashboardData>('/members/me/dashboard');
+  }
+
+  async getProjectTasks(
+    projectId: string,
+    params?: { milestone_id?: string; assignee_id?: string; status?: string }
+  ): Promise<ProjectTaskItem[]> {
+    const query = new URLSearchParams();
+    if (params?.milestone_id) query.append('milestone_id', params.milestone_id);
+    if (params?.assignee_id) query.append('assignee_id', params.assignee_id);
+    if (params?.status) query.append('status', params.status);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<ProjectTaskItem[]>(`/projects/${projectId}/tasks${qs}`);
+  }
+
+  async createProjectTask(
+    projectId: string,
+    data: {
+      title: string;
+      description?: string;
+      milestone_id?: string;
+      assignee_id?: string;
+      priority?: string;
+      deadline?: string;
+      github_repo?: string;
+      branch?: string;
+      dependencies?: string[];
+    }
+  ): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/projects/${projectId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getTaskDetails(taskId: string): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}`);
+  }
+
+  async updateTask(
+    taskId: string,
+    data: Partial<{
+      title: string;
+      description: string;
+      milestone_id: string;
+      assignee_id: string;
+      priority: string;
+      deadline: string;
+      github_repo: string;
+      branch: string;
+      pull_request_url: string;
+      status: string;
+    }>
+  ): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateTaskStatus(taskId: string, status: string): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async submitTaskEvidence(
+    taskId: string,
+    data: {
+      branch?: string;
+      pull_request_url?: string;
+      pull_request_number?: number;
+      commit_sha?: string;
+      commit_message?: string;
+      changed_files?: string[];
+      submission_notes?: string;
+    }
+  ): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async reviewProjectTask(
+    taskId: string,
+    data: {
+      status: 'APPROVED' | 'CHANGES_REQUESTED';
+      comment: string;
+      commit_sha?: string;
+    }
+  ): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}/reviews`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async addTaskDependency(taskId: string, dependsOnTaskId: string): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}/dependencies`, {
+      method: 'POST',
+      body: JSON.stringify({ depends_on_task_id: dependsOnTaskId }),
+    });
+  }
+
+  async removeTaskDependency(taskId: string, dependsOnTaskId: string): Promise<ProjectTaskItem> {
+    return this.request<ProjectTaskItem>(`/tasks/${taskId}/dependencies/${dependsOnTaskId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addTaskComment(taskId: string, content: string) {
+    return this.request<{ id: string; content: string; created_at: string }>(`/tasks/${taskId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  async getMilestones(projectId: string): Promise<Milestone[]> {
+    return this.request<Milestone[]>(`/projects/${projectId}/milestones`);
+  }
+
+  async createMilestone(
+    projectId: string,
+    data: { title: string; description?: string; target_date?: string }
+  ): Promise<Milestone> {
+    return this.request<Milestone>(`/projects/${projectId}/milestones`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 }

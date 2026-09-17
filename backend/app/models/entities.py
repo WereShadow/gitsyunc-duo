@@ -107,6 +107,9 @@ class Project(Base):
 
     duo: Mapped["Duo"] = relationship("Duo", back_populates="projects")
     user: Mapped[Optional["User"]] = relationship("User")
+    milestones: Mapped[List["ProjectMilestone"]] = relationship("ProjectMilestone", back_populates="project", cascade="all, delete-orphan")
+    tasks: Mapped[List["ProjectTask"]] = relationship("ProjectTask", back_populates="project", cascade="all, delete-orphan")
+    activity_logs: Mapped[List["TaskActivityLog"]] = relationship("TaskActivityLog", back_populates="project", cascade="all, delete-orphan")
 
 
 class DailyTask(Base):
@@ -239,3 +242,141 @@ class WebhookEvent(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="PROCESSED", nullable=False)  # PROCESSED, IGNORED, FAILED
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ProjectMilestone(Base):
+    __tablename__ = "project_milestones"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    target_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
+    status: Mapped[str] = mapped_column(String(50), default="OPEN", nullable=False)  # OPEN, COMPLETED
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+    project: Mapped["Project"] = relationship("Project", back_populates="milestones")
+    tasks: Mapped[List["ProjectTask"]] = relationship("ProjectTask", back_populates="milestone")
+
+
+class ProjectTask(Base):
+    __tablename__ = "project_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False)
+    milestone_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("project_milestones.id", ondelete="SET NULL"), nullable=True)
+    creator_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    assignee_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    priority: Mapped[str] = mapped_column(String(20), default="MEDIUM", nullable=False)  # LOW, MEDIUM, HIGH, URGENT
+    deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="BACKLOG", index=True, nullable=False)
+    # BACKLOG, TODO, IN_PROGRESS, SUBMITTED, UNDER_REVIEW, CHANGES_REQUESTED, APPROVED, COMPLETED
+
+    # GitHub Evidence & Verification Fields
+    github_repo: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    branch: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    pull_request_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    pull_request_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    latest_commit_sha: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    latest_commit_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_files: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of file paths
+    
+    # Verification & CI
+    verification_status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False)  # PENDING, PASSED, FAILED, SKIPPED
+    verification_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON check summary
+
+    # Submission & Completion tracking
+    submission_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    project: Mapped["Project"] = relationship("Project", back_populates="tasks")
+    milestone: Mapped[Optional["ProjectMilestone"]] = relationship("ProjectMilestone", back_populates="tasks")
+    creator: Mapped["User"] = relationship("User", foreign_keys=[creator_id])
+    assignee: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assignee_id])
+    
+    dependencies: Mapped[List["TaskDependency"]] = relationship(
+        "TaskDependency",
+        foreign_keys="TaskDependency.task_id",
+        back_populates="task",
+        cascade="all, delete-orphan"
+    )
+    dependents: Mapped[List["TaskDependency"]] = relationship(
+        "TaskDependency",
+        foreign_keys="TaskDependency.depends_on_task_id",
+        back_populates="depends_on_task",
+        cascade="all, delete-orphan"
+    )
+    comments: Mapped[List["TaskComment"]] = relationship("TaskComment", back_populates="task", cascade="all, delete-orphan")
+    reviews: Mapped[List["TaskReviewLog"]] = relationship("TaskReviewLog", back_populates="task", cascade="all, delete-orphan")
+    activity_logs: Mapped[List["TaskActivityLog"]] = relationship("TaskActivityLog", back_populates="task", cascade="all, delete-orphan")
+
+
+class TaskDependency(Base):
+    __tablename__ = "task_dependencies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("project_tasks.id", ondelete="CASCADE"), index=True, nullable=False)
+    depends_on_task_id: Mapped[str] = mapped_column(String(36), ForeignKey("project_tasks.id", ondelete="CASCADE"), index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "depends_on_task_id", name="uq_task_dependency"),
+    )
+
+    task: Mapped["ProjectTask"] = relationship("ProjectTask", foreign_keys=[task_id], back_populates="dependencies")
+    depends_on_task: Mapped["ProjectTask"] = relationship("ProjectTask", foreign_keys=[depends_on_task_id], back_populates="dependents")
+
+
+class TaskReviewLog(Base):
+    __tablename__ = "project_task_reviews"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("project_tasks.id", ondelete="CASCADE"), index=True, nullable=False)
+    reviewer_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)  # APPROVED, CHANGES_REQUESTED
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    commit_sha: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["ProjectTask"] = relationship("ProjectTask", back_populates="reviews")
+    reviewer: Mapped["User"] = relationship("User")
+
+
+class TaskComment(Base):
+    __tablename__ = "project_task_comments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("project_tasks.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["ProjectTask"] = relationship("ProjectTask", back_populates="comments")
+    user: Mapped["User"] = relationship("User")
+
+
+class TaskActivityLog(Base):
+    __tablename__ = "project_activity_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False)
+    task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("project_tasks.id", ondelete="CASCADE"), nullable=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    # e.g., "TASK_CREATED", "TASK_SUBMITTED", "CHANGES_REQUESTED", "TASK_APPROVED", "TASK_COMPLETED", "GITHUB_COMMITS_VERIFIED"
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    project: Mapped["Project"] = relationship("Project", back_populates="activity_logs")
+    task: Mapped[Optional["ProjectTask"]] = relationship("ProjectTask", back_populates="activity_logs")
+    user: Mapped[Optional["User"]] = relationship("User")
