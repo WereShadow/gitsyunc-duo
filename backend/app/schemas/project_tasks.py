@@ -37,6 +37,7 @@ class DependencyItem(BaseModel):
     depends_on_title: Optional[str] = None
     depends_on_status: Optional[str] = None
     is_blocking: bool = False
+    depth: int = 1  # 1 = direct, 2+ = transitive
 
     class Config:
         from_attributes = True
@@ -85,6 +86,7 @@ class TaskCommentResponse(BaseModel):
 
 # --- Task Submission & Status Schemas ---
 class TaskSubmit(BaseModel):
+    github_repo: Optional[str] = None
     branch: Optional[str] = None
     pull_request_url: Optional[str] = None
     pull_request_number: Optional[int] = None
@@ -151,6 +153,7 @@ class ProjectTaskResponse(BaseModel):
     verification_status: str
     verification_details: Optional[Dict[str, Any]] = None
     submission_notes: Optional[str] = None
+    submission_count: int = 0
     submitted_at: Optional[datetime] = None
     approved_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -173,6 +176,9 @@ class ActivityLogResponse(BaseModel):
     user_name: Optional[str] = None
     action: str
     details: Optional[str] = None
+    previous_state: Optional[str] = None
+    new_state: Optional[str] = None
+    event_metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:
@@ -201,6 +207,9 @@ class ProjectDashboardResponse(BaseModel):
     blocked_tasks: int
     overdue_tasks: int
     tasks_awaiting_review: int
+    failed_ci_count: int = 0
+    review_backlog_count: int = 0
+    at_risk_milestones: int = 0
     project_health: str
     milestones: List[MilestoneResponse] = []
     member_activities: List[MemberActivityStat] = []

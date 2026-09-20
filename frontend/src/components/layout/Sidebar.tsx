@@ -11,7 +11,8 @@ import {
   UserCheck,
   ShieldCheck,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  FolderKanban
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -27,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange }) => 
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'projects', label: 'Project Pipeline', icon: FolderKanban },
     { id: 'task', label: "Today's Task", icon: CheckSquare },
     { id: 'github', label: 'GitHub Activity', icon: GitCommit },
     { id: 'calendar', label: 'Calendar', icon: Calendar },

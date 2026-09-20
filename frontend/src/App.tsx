@@ -24,13 +24,14 @@ import { CalendarPage } from './pages/CalendarPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { StatisticsPage } from './pages/StatisticsPage';
 import SettingsPage from './pages/SettingsPage';
+import { ProjectPipelinePage } from './pages/ProjectPipelinePage';
 
 // ------------------------------------------------------------
 // Types
 // ------------------------------------------------------------
 type PublicPage = 'landing' | 'login' | 'register';
 type OnboardPage = 'onboarding' | 'create-duo' | 'join-duo';
-type AppTab = 'dashboard' | 'task' | 'github' | 'calendar' | 'history' | 'statistics' | 'settings';
+type AppTab = 'dashboard' | 'task' | 'github' | 'calendar' | 'history' | 'statistics' | 'settings' | 'projects';
 
 // ------------------------------------------------------------
 // Loading Spinner
@@ -136,6 +137,8 @@ const App: React.FC = () => {
         return <StatisticsPage key={refreshKey} />;
       case 'settings':
         return <SettingsPage key={refreshKey} />;
+      case 'projects':
+        return <ProjectPipelinePage key={refreshKey} onNavigate={(tab: string) => setCurrentTab(tab as AppTab)} />;
       default:
         return <DashboardPage key={refreshKey} onNavigate={(tab: string) => setCurrentTab(tab as AppTab)} />;
     }

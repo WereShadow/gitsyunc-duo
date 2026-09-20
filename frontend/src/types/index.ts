@@ -276,6 +276,7 @@ export interface ProjectTaskItem {
   verification_status: 'PENDING' | 'PASSED' | 'FAILED' | 'SKIPPED';
   verification_details?: Record<string, any> | null;
   submission_notes?: string | null;
+  submission_count: number;
   submitted_at?: string | null;
   approved_at?: string | null;
   completed_at?: string | null;
@@ -294,6 +295,9 @@ export interface ProjectActivityLogItem {
   user_name?: string | null;
   action: string;
   details?: string | null;
+  previous_state?: string | null;
+  new_state?: string | null;
+  event_metadata?: Record<string, any> | null;
   created_at: string;
 }
 
@@ -319,6 +323,9 @@ export interface ProjectDashboardData {
   blocked_tasks: number;
   overdue_tasks: number;
   tasks_awaiting_review: number;
+  failed_ci_count: number;
+  review_backlog_count: number;
+  at_risk_milestones: number;
   project_health: 'ON_TRACK' | 'AT_RISK' | 'DELAYED';
   milestones: Milestone[];
   member_activities: MemberActivityStatItem[];

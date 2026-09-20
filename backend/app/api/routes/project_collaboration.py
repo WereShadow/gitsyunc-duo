@@ -101,6 +101,7 @@ async def build_task_response(session: AsyncSession, task: ProjectTask) -> Proje
         verification_status=task.verification_status,
         verification_details=verification_details,
         submission_notes=task.submission_notes,
+        submission_count=task.submission_count or 0,
         submitted_at=task.submitted_at,
         approved_at=task.approved_at,
         completed_at=task.completed_at,
@@ -348,6 +349,21 @@ async def add_task_dependency(
     if not dep_task:
         raise HTTPException(status_code=404, detail='Dependency task not found')
 
+    # Cross-project dependency guard (Spec §7)
+    if dep_task.project_id != task.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail='Cross-project dependencies are not allowed. Both tasks must belong to the same project.'
+        )
+
+    # Cycle detection (Spec §7) — BFS check before inserting
+    would_cycle = await ProjectEngine.would_create_cycle(db, task_id, data.depends_on_task_id)
+    if would_cycle:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Adding this dependency would create a cycle in the task dependency graph.'
+        )
+
     existing = await db.execute(
         select(TaskDependency).where(
             and_(
@@ -360,6 +376,15 @@ async def add_task_dependency(
         dep = TaskDependency(task_id=task_id, depends_on_task_id=data.depends_on_task_id)
         db.add(dep)
         await db.flush()
+        await ProjectEngine.log_activity(
+            session=db,
+            project_id=task.project_id,
+            task_id=task_id,
+            user_id=current_user.id,
+            action='DEPENDENCY_CREATED',
+            details=f'Task "{task.title}" now depends on "{dep_task.title}"',
+            metadata={'depends_on_task_id': data.depends_on_task_id, 'depends_on_title': dep_task.title},
+        )
 
     fresh = await ProjectEngine.get_task_with_relations(db, task_id)
     return await build_task_response(db, fresh)
@@ -570,6 +595,9 @@ async def get_project_dashboard(
             user_name=a.user.full_name if a.user else 'System',
             action=a.action,
             details=a.details,
+            previous_state=a.previous_state,
+            new_state=a.new_state,
+            event_metadata=json.loads(a.event_metadata) if a.event_metadata else None,
             created_at=a.created_at
         )
         for a in act_res.scalars().all()
@@ -590,6 +618,9 @@ async def get_project_dashboard(
         blocked_tasks=metrics['blocked_tasks'],
         overdue_tasks=metrics['overdue_tasks'],
         tasks_awaiting_review=metrics['tasks_awaiting_review'],
+        failed_ci_count=metrics.get('failed_ci_count', 0),
+        review_backlog_count=metrics.get('review_backlog_count', 0),
+        at_risk_milestones=metrics.get('at_risk_milestones', 0),
         project_health=metrics['project_health'],
         milestones=milestones_data,
         member_activities=member_stats,

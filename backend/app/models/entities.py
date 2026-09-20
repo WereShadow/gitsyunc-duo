@@ -291,6 +291,8 @@ class ProjectTask(Base):
 
     # Submission & Completion tracking
     submission_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # submission_count increments on every submit call; used to detect stale reviews
+    submission_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -346,6 +348,8 @@ class TaskReviewLog(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False)  # APPROVED, CHANGES_REQUESTED
     comment: Mapped[str] = mapped_column(Text, nullable=False)
     commit_sha: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # snapshot of task.submission_count at the time this review was created
+    submission_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     task: Mapped["ProjectTask"] = relationship("ProjectTask", back_populates="reviews")
@@ -372,11 +376,19 @@ class TaskActivityLog(Base):
     project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False)
     task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("project_tasks.id", ondelete="CASCADE"), nullable=True)
     user_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
-    action: Mapped[str] = mapped_column(String(100), nullable=False)
-    # e.g., "TASK_CREATED", "TASK_SUBMITTED", "CHANGES_REQUESTED", "TASK_APPROVED", "TASK_COMPLETED", "GITHUB_COMMITS_VERIFIED"
+    action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    # Full event taxonomy: TASK_CREATED, TASK_ASSIGNED, TASK_UNASSIGNED, TASK_BLOCKED,
+    # TASK_UNBLOCKED, STATUS_CHANGED, TASK_SUBMITTED, VERIFICATION_STARTED,
+    # VERIFICATION_PASSED, VERIFICATION_FAILED, TASK_APPROVED, CHANGES_REQUESTED,
+    # TASK_COMPLETED, DEPENDENCY_CREATED, DEPENDENCY_REMOVED,
+    # MILESTONE_CREATED, MILESTONE_COMPLETED, COMMENT_ADDED
+    previous_state: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    new_state: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON dict
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     project: Mapped["Project"] = relationship("Project", back_populates="activity_logs")
     task: Mapped[Optional["ProjectTask"]] = relationship("ProjectTask", back_populates="activity_logs")
     user: Mapped[Optional["User"]] = relationship("User")
+
